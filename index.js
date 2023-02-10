@@ -1,57 +1,44 @@
-const cluster = require("cluster");
 const express = require("express");
-const { Server } = require("socket.io");
-const numCPUs = require("os").cpus().length;
-const { setupMaster, setupWorker } = require("@socket.io/sticky");
-const { createAdapter, setupPrimary } = require("@socket.io/cluster-adapter");
+const port = 3000;
+const cluster = require("cluster");
+const totalCPUs = require("os").cpus().length;
 
 if (cluster.isMaster) {
+  console.log(`Number of CPUs is ${totalCPUs}`);
   console.log(`Master ${process.pid} is running`);
 
-  const app = express();
-  const httpServer = app.listen(3000);
-
-  // setup sticky sessions
-  setupMaster(httpServer, {
-    loadBalancingMethod: "least-connection",
-  });
-
-  // setup connections between the workers
-  setupPrimary();
-
-  // needed for packets containing buffers (you can ignore it if you only send plaintext objects)
-  // Node.js < 16.0.0
-  cluster.setupMaster({
-    serialization: "advanced",
-  });
-  // Node.js > 16.0.0
-  // cluster.setupPrimary({
-  //   serialization: "advanced",
-  // });
-
-  console.log("🚀 Aqui *** -> numCPUs", numCPUs);
-  for (let i = 0; i < 4; i++) {
+  // Fork workers.
+  for (let i = 0; i < totalCPUs; i++) {
     cluster.fork();
   }
 
-  cluster.on("exit", (worker) => {
-    console.log(`Worker ${worker.process.pid} died`);
+  cluster.on("exit", (worker, code, signal) => {
+    console.log(`worker ${worker.process.pid} died`);
+    console.log("Let's fork another worker!");
     cluster.fork();
   });
 } else {
+  const app = express();
   console.log(`Worker ${process.pid} started`);
 
-  const app = express();
-  const httpServer = app.listen(3000);
-  const io = new Server(httpServer);
+  app.get("/", (req, res) => {
+    res.send("Hello World!");
+  });
 
-  // use the cluster adapter
-  io.adapter(createAdapter());
+  app.get("/api/:n", function (req, res) {
+    let n = parseInt(req.params.n);
+    let count = 0;
 
-  // setup connection with the primary process
-  setupWorker(io);
+    if (n > 5000000000) n = 5000000000;
 
-  io.on("connection", (socket) => {
-    /* ... */
+    for (let i = 0; i <= n; i++) {
+      count += i;
+    }
+    console.log(`Final count is ${count}, handled by ${process.pid}`);
+    res.send(`Final count is ${count}, handled by ${process.pid}`);
+  });
+
+  app.listen(port, () => {
+    console.log(`App listening on port ${port}`);
   });
 }
